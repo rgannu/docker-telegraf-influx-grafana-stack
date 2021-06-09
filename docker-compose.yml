@@ -1,9 +1,87 @@
-version: '3.6'
+version: '3.7'
 services:
+  zookeeper:
+    hostname: zookeeper
+    image: debezium/zookeeper:${DEBEZIUM_ZK_VERSION}
+    container_name: zookeeper
+    volumes:
+      - ./docker/zookeeper/data:/zookeeper/data
+      - ./docker/zookeeper/txns:/zookeeper/txns
+      - ./docker/zookeeper/logs:/zookeeper/logs
+    ports:
+      - 2181:2181
+      - 2888:2888
+      - 3888:3888
+      - 29999:9999
+    env_file:
+      - ./config/zk.env
+
+  kafka:
+    image: debezium/kafka:${DEBEZIUM_KAFKA_VERSION}
+    container_name: kafka
+    ports:
+      - 19092:19092
+      - 39999:9999
+    volumes:
+      - ./docker/kafka/data:/kafka/data
+    depends_on:
+      - zookeeper
+    env_file:
+      - ./config/kafka.env
+
+  kafkacat:
+    image: edenhill/kafkacat:1.6.0
+    container_name: kafkacat
+    depends_on:
+      - kafka
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add jq;
+        while [ 1 -eq 1 ];do sleep 60;done
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    restart: "no"
+    ports:
+      - 19000:9000
+    env_file:
+      - ./config/kafdrop.env
+    depends_on:
+      - kafka
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION}
+    container_name: schema-registry
+    ports:
+      - 18081:18081
+    env_file:
+      - ./config/schema-registry.env
+    depends_on:
+      - zookeeper
+      - kafka
+
+  connect:
+    container_name: connect
+    build:
+      context: ./docker/connect
+      dockerfile: Dockerfile
+    ports:
+      - 18083:8083
+    depends_on:
+      - zookeeper
+      - kafka
+      - schema-registry
+    env_file:
+      - ./config/connect.env
+
   telegraf:
     image: telegraf:1.18-alpine
+    container_name: telegraf
     volumes:
-    - ./telegraf/etc/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    - ./docker/telegraf/etc/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     depends_on:
       - influxdb
     links:
@@ -13,26 +91,29 @@ services:
 
   influxdb:
     image: influxdb:1.8-alpine
-    env_file: configuration.env
+    container_name: influxdb
     ports:
       - '127.0.0.1:8086:8086'
     volumes:
       - ./:/imports
       - influxdb_data:/var/lib/influxdb
+    env_file:
+      - ./config/influxdb.env
 
   grafana:
     image: grafana/grafana:7.5.4
     depends_on:
       - influxdb
-    env_file: configuration.env
     links:
       - influxdb
     ports:
       - '127.0.0.1:3000:3000'
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning/:/etc/grafana/provisioning/
-      - ./grafana/dashboards/:/var/lib/grafana/dashboards/
+      - ./docker/grafana/provisioning/:/etc/grafana/provisioning/
+      - ./docker/grafana/dashboards/:/var/lib/grafana/dashboards/
+    env_file:
+      - ./config/grafana.env
 
 volumes:
   grafana_data: {}

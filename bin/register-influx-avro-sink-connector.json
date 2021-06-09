@@ -1,0 +1,16 @@
+{
+  "name": "influx-avro-sink-connector",
+  "config": {
+    "_comment"                      : "Stream data from Kafka topic to InfluxDb",
+    "connector.class"               : "io.confluent.influxdb.InfluxDBSinkConnector",
+    "_comment"                      : "Which topic(s) to read data from",
+    "topics"                        : "avro_01",
+    "key.converter"                 : "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter"               : "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:18081",
+    "value.converter.schemas.enable": "true",
+    "influxdb.url"                  : "http://influxdb:8086",
+    "influxdb.db"                   : "influx",
+    "measurement.name.format"       : "${topic}"
+  }
+}

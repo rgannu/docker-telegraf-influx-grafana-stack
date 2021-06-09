@@ -1,0 +1,15 @@
+{
+  "name": "influx-json-sink-connector",
+  "config": {
+    "_comment"                      : "Stream data from Kafka topic to InfluxDb",
+    "connector.class"               : "io.confluent.influxdb.InfluxDBSinkConnector",
+    "_comment"                      : "Which topic(s) to read data from",
+    "topics"                        : "json_01",
+    "key.converter"                 : "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter"               : "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+    "influxdb.url"                  : "http://influxdb:8086",
+    "influxdb.db"                   : "influx",
+    "measurement.name.format"       : "${topic}"
+  }
+}
