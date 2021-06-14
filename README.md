@@ -1,4 +1,4 @@
-# Example Docker Compose project for Telegraf, InfluxDB and Grafana
+# Example Docker Compose project for Telegraf, InfluxDB and Grafana in the Kafka ecosystem
 
 This an example project to show the TIG (Telegraf, InfluxDB and Grafana) and Kafka-Ecosystem stack.
 
@@ -85,18 +85,26 @@ See blog post: https://rmoff.net/2020/01/23/notes-on-getting-data-into-influxdb-
 
 Load test data:
 
+Produce data with schema and payload
+
 ```bash
 bin/load-json-data.sh
 
 # To produce one message
-docker exec -i kafkacat kafkacat -b kafka:19092 -P -t json_01 <<EOF
+docker exec -i kafkacat kafkacat -b kafka:9092 -P -t json_01 <<EOF
 { "schema": { "type": "struct", "fields": [ { "field": "tags" , "type": "map", "keys": { "type": "string", "optional": false }, "values": { "type": "string", "optional": false }, "optional": false}, { "field": "stock", "type": "double", "optional": true } ], "optional": false, "version": 1 }, "payload": { "tags": { "host": "FOO", "product": "wibble" }, "stock": 500.0 } }
 EOF
 ```
 
+Produce a nested plain json without any schema. 
+```bash
+bin/load-json-stats-data.sh
+```
+
 Check data is there:
 ```bash
-docker exec kafkacat kafkacat -b kafka:19092 -C -u -t json_01
+docker exec kafkacat kafkacat -b kafka:9092 -C -u -t json_01
+docker exec kafkacat kafkacat -b kafka:9092 -C -u -t statistics-topic
 ```
 
 Create the connector:
@@ -139,7 +147,7 @@ Load test data:
 bin/load-avro-data.sh
 
 # To produce one message
-docker exec -i schema-registry /usr/bin/kafka-avro-console-producer --broker-list kafka:19092 --topic avro_01 --property schema.registry.url='http://schema-registry:18081' --property value.schema='{ "type": "record", "name": "myrecord", "fields": [ { "name": "tags", "type": { "type": "map", "values": "string" } }, { "name": "stock", "type": "double" } ] }' <<EOF
+docker exec -i schema-registry /usr/bin/kafka-avro-console-producer --broker-list kafka:9092 --topic avro_01 --property schema.registry.url='http://schema-registry:18081' --property value.schema='{ "type": "record", "name": "myrecord", "fields": [ { "name": "tags", "type": { "type": "map", "values": "string" } }, { "name": "stock", "type": "double" } ] }' <<EOF
 { "tags": { "host": "FOO", "product": "wibble" }, "stock": 500.0 }
 EOF
 ```
@@ -147,7 +155,7 @@ EOF
 Check the data's there (I'm using kafkacat just to be contrary; you can use `kafka-avro-console-consumer` too):
 
 ```bash
-$ docker exec -i kafkacat kafkacat -b kafka:19092 -C -t avro_01 -r http://schema-registry:18081 -s avro
+$ docker exec -i kafkacat kafkacat -b kafka:9092 -C -t avro_01 -r http://schema-registry:18081 -s avro
 
 {"tags": {"host": "FOO", "product": "wibble"}, "stock": 500.0}
 ```
@@ -175,6 +183,34 @@ time                stock
 1579781680622000000 500
 -----
 ```
+## KSQL
+
+Here, we are creating kafka stream from the JSON.
+
+**_statistics-topic (JSON) -> statistics-avro (formatted JSON) -> kafka sink connector (influxdb) -> Metrics (influxDB) -> Grafana (Visualization)**_
+
+```bash
+docker exec --interactive --tty ksqldb ksql http://localhost:8088
+
+SET 'auto.offset.reset' = 'earliest';
+
+CREATE STREAM STATISTICS_JSON_STREAM (`end.event_ts.ns` BIGINT, `operations` STRUCT<`creates` INT, `updates` INT, `deletes` INT, `reads` INT, `total` INT>, `start.event_ts.ns` BIGINT) 
+        WITH (KAFKA_TOPIC='statistics-topic', VALUE_FORMAT='JSON');
+
+SELECT * from STATISTICS_JSON_STREAM EMIT CHANGES LIMIT 1;
+
+CREATE STREAM STATISTICS_AVRO_STREAM 
+        WITH (VALUE_FORMAT='AVRO', KAFKA_TOPIC='statistics-avro') 
+        AS SELECT `start.event_ts.ns`/1000  AS START_TS, `end.event_ts.ns`/1000 AS END_TS, `operations`->`creates` AS CREATES,  
+        `operations`->`updates` AS UPDATES, `operations`->`deletes` AS DELETES, `operations`->`reads` AS READS,
+        `operations`->`total` AS TOTAL FROM STATISTICS_JSON_STREAM;
+
+SELECT * from STATISTICS_AVRO_STREAM EMIT CHANGES LIMIT 1;
+
+```
+
+Open the Grafana UI to see the graphs: http://localhost:3000
+(Already created dashboard from a template)
 
 ## Kafkacat
 

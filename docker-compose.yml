@@ -20,7 +20,24 @@ services:
     image: debezium/kafka:${DEBEZIUM_KAFKA_VERSION}
     container_name: kafka
     ports:
-      - 19092:19092
+      # "`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-
+      # An important note about accessing Kafka from clients on other machines:
+      # -----------------------------------------------------------------------
+      #
+      # The config used here exposes port 9092 for _external_ connections to the broker
+      # i.e. those from _outside_ the docker network. This could be from the host machine
+      # running docker, or maybe further afield if you've got a more complicated setup.
+      # If the latter is true, you will need to change the value 'localhost' in
+      # KAFKA_ADVERTISED_LISTENERS to one that is resolvable to the docker host from those
+      # remote clients
+      #
+      # For connections _internal_ to the docker network, such as from other services
+      # and components, use kafka:9092.
+      #
+      # See https://rmoff.net/2018/08/02/kafka-listeners-explained/ for details
+      # "`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-'"`-._,-
+      #
+      - 29092:29092
       - 39999:9999
     volumes:
       - ./docker/kafka/data:/kafka/data
@@ -70,6 +87,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - 18083:8083
+    volumes:
+      - ./docker/connect/logs:/kafka/logs
     depends_on:
       - zookeeper
       - kafka
@@ -77,11 +96,34 @@ services:
     env_file:
       - ./config/connect.env
 
+  ksqldb:
+    # *-----------------------------*
+    # To connect to ksqlDB CLI
+    #   docker exec --interactive --tty ksqldb ksql http://localhost:8088
+    # *-----------------------------*
+    image: confluentinc/ksqldb-server:0.18.0
+    hostname: ksqldb
+    container_name: ksqldb
+    depends_on:
+      - kafka
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_BOOTSTRAP_SERVERS: kafka:9092
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:18081
+      KSQL_STREAMS_PRODUCER_MAX_BLOCK_MS: 9223372036854775807
+      KSQL_KSQL_CONNECT_URL: http://connect:18083
+      KSQL_KSQL_SERVICE_ID: rgannu_01
+      KSQL_KSQL_HIDDEN_TOPICS: '^_.*'
+
   telegraf:
     image: telegraf:1.18-alpine
     container_name: telegraf
     volumes:
-    - ./docker/telegraf/etc/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./docker/telegraf/etc/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     depends_on:
       - influxdb
     links:
@@ -102,6 +144,7 @@ services:
 
   grafana:
     image: grafana/grafana:7.5.4
+    container_name: grafana
     depends_on:
       - influxdb
     links:
